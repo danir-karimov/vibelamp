@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Firmware images (never commit build artifacts)
+*.bin
+*.hex
+*.elf
+*.map

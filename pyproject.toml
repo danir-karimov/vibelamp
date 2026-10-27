@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibelamp"
+version = "0.1.0"
+description = "Кроссплатформенный (Windows/Linux/macOS) Python SDK для светильника VibeLamp: автообнаружение, управление, обновление прошивки"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "VibeLamp" }]
+keywords = ["vibelamp", "stm32", "usb-cdc", "serial", "ws2812b", "dfu", "ota"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Hardware",
+]
+dependencies = ["pyserial>=3.5"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/danir-karimov/vibelamp"
+Repository = "https://github.com/danir-karimov/vibelamp"
+Issues = "https://github.com/danir-karimov/vibelamp/issues"
+Changelog = "https://github.com/danir-karimov/vibelamp/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
