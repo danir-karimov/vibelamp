@@ -78,7 +78,7 @@ def _command(state: dict, key: str) -> str:
 
 def test_palette_covers_every_documented_state() -> None:
     for name in ("arrive", "thinking", "tool", "question", "done",
-                 "waiting", "idle", "error"):
+                 "waiting", "idle", "night", "error"):
         assert name in lampd.STATES, name
         assert 0 <= lampd.STATES[name]["bri"] <= 255
 
@@ -88,8 +88,9 @@ def test_palette_uses_the_sdk_effects() -> None:
     assert _command(lampd.STATES["tool"], "effect") == "running 900 0 200 255"
     assert _command(lampd.STATES["question"], "effect") == "blink 900"
     assert "rgb" not in lampd.STATES["waiting"]        # дыхание не меняет цвет
-    assert _command(lampd.STATES["waiting"], "effect") == "breathe 4000 0 153 0"
-    assert _command(lampd.STATES["idle"], "effect") == "breathe 20000 0 153 0"
+    assert _command(lampd.STATES["waiting"], "effect") == "breathe 8000 0 153 0"
+    assert _command(lampd.STATES["idle"], "effect") == "breathe 12000 0 153 0"
+    assert _command(lampd.STATES["night"], "effect") == "breathe 12000 150 0 0"
     assert lampd.STATES["done"]["rgb"] == (0, 204, 0)
 
 
@@ -220,6 +221,48 @@ def test_long_silence_switches_to_rare_breathing(rig) -> None:
     clock.advance(lampd.IDLE_AFTER + 1)
     engine.tick()
     assert engine.current == "idle"
+
+
+def test_brightness_is_scaled_down_globally() -> None:
+    """Общая поправка режет только яркость, не цвета и не эффекты."""
+    assert lampd.scaled_brightness(255) == int(round(255 * lampd.BRIGHTNESS))
+    assert lampd.scaled_brightness(0) == 1          # ноль зажимаем в единицу
+    assert lampd.scaled_brightness(1000) == 255     # и сверху тоже
+
+
+def test_long_silence_switches_to_night(rig) -> None:
+    engine, painter, clock = rig
+    engine.feed({"event": "turn_start"})
+    engine.feed({"event": "turn_end"})
+    clock.advance(lampd.FLASH_DONE + 0.1)
+    engine.tick()
+    assert engine.current == "waiting"
+
+    clock.advance(lampd.IDLE_AFTER + 1)
+    engine.tick()
+    assert engine.current == "idle"
+
+    clock.advance(lampd.NIGHT_AFTER)
+    engine.tick()
+    assert engine.current == "night"
+
+    # Ночью демон не двигает яркость сам: анимацию рисует прошивка.
+    painter.clear()
+    clock.advance(2.0)
+    engine.tick()
+    assert painter.applied == []
+
+
+def test_night_resets_when_agent_wakes_up(rig) -> None:
+    engine, _painter, clock = rig
+    engine.feed({"event": "turn_start"})
+    engine.feed({"event": "turn_end"})
+    clock.advance(lampd.NIGHT_AFTER + 1)
+    engine.tick()
+    assert engine.current == "night"
+
+    engine.feed({"event": "turn_start"})
+    assert engine.current != "night"
 
 
 # --------------------------------------------------------------------------- #

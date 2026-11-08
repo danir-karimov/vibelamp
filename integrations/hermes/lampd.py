@@ -50,8 +50,9 @@ STATES = {
     "tool": {"bri": 160, "effect": Effect.running(900, 0, 200, 255)},
     "question": {"bri": 220, "rgb": (255, 210, 40), "effect": Effect.blink(900)},
     "done": {"bri": 255, "rgb": (0, 204, 0)},
-    "waiting": {"bri": 255, "effect": Effect.breathe(4000, 0, 153, 0)},
-    "idle": {"bri": 70, "effect": Effect.breathe(20000, 0, 153, 0)},
+    "waiting": {"bri": 170, "effect": Effect.breathe(8000, 0, 153, 0)},
+    "idle": {"bri": 60, "effect": Effect.breathe(12000, 0, 153, 0)},
+    "night": {"bri": 30, "effect": Effect.breathe(12000, 150, 0, 0)},
     "error": {"bri": 230, "rgb": (255, 0, 0), "effect": Effect.blink(220)},
     "boot": {"bri": 180, "rgb": (255, 30, 60), "effect": Effect.fadein(800)},
 }
@@ -71,6 +72,12 @@ HEAVY_TOOLS = frozenset({
 TOOL_HOLD_AFTER = 1.5
 #: После стольких секунд тишины после хода — дышать редко.
 IDLE_AFTER = float(os.environ.get("VIBELAMP_IDLE_AFTER", 180))
+#: После стольких секунд тишины — ночной режим: тёмно-красное дыхание.
+#: Зелёный в темноте бьёт по глазам, красный на минимуме читается как «живой».
+NIGHT_AFTER = float(os.environ.get("VIBELAMP_NIGHT_AFTER", 1200))
+#: Общая поправка яркости для всех состояний: лампа слепит вблизи и засвечивает
+#: камеру. Цвета и эффекты не трогаем — только `bri`.
+BRIGHTNESS = float(os.environ.get("VIBELAMP_BRIGHTNESS", 0.8))
 #: Длительности вспышек.
 FLASH_ARRIVE = 0.35
 FLASH_DONE = 3.0
@@ -80,6 +87,11 @@ TICK = 0.1
 SPEAK_AFTER = float(os.environ.get("VIBELAMP_SPEAK_AFTER", 0))
 #: Секунд между попытками переподключиться, если устройство пропало.
 RECONNECT_EVERY = 2.0
+
+
+def scaled_brightness(value: int) -> int:
+    """Яркость с общей поправкой, зажатая в допустимые 1..255."""
+    return max(1, min(255, int(round(value * BRIGHTNESS))))
 
 
 def spool_path() -> Path:
@@ -156,7 +168,7 @@ class Painter:
         if lamp is None:
             return False
         try:
-            lamp.set_brightness(int(state["bri"]))
+            lamp.set_brightness(scaled_brightness(int(state["bri"])))
             rgb = state.get("rgb")
             if rgb:
                 lamp.set_rgb(*rgb)
@@ -308,6 +320,10 @@ class Engine:
         elif self.current == "waiting" and self.waiting_since and \
                 now - self.waiting_since > IDLE_AFTER:
             self.render("idle")
+
+        if self.current in ("waiting", "idle") and self.waiting_since and \
+                now - self.waiting_since > NIGHT_AFTER:
+            self.render("night")
 
 
 # --------------------------------------------------------------------------- #
