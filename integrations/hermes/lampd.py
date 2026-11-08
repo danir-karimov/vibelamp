@@ -52,7 +52,7 @@ STATES = {
     "done": {"bri": 255, "rgb": (0, 204, 0)},
     "waiting": {"bri": 170, "effect": Effect.breathe(8000, 0, 153, 0)},
     "idle": {"bri": 60, "effect": Effect.breathe(12000, 0, 153, 0)},
-    "night": {"bri": 8, "rgb": (150, 0, 0)},
+    "night": {"bri": 30, "effect": Effect.breathe(12000, 150, 0, 0)},
     "error": {"bri": 230, "rgb": (255, 0, 0), "effect": Effect.blink(220)},
     "boot": {"bri": 180, "rgb": (255, 30, 60), "effect": Effect.fadein(800)},
 }
@@ -75,10 +75,6 @@ IDLE_AFTER = float(os.environ.get("VIBELAMP_IDLE_AFTER", 180))
 #: После стольких секунд тишины — ночной режим: тёмно-красное дыхание.
 #: Зелёный в темноте бьёт по глазам, красный на минимуме читается как «живой».
 NIGHT_AFTER = float(os.environ.get("VIBELAMP_NIGHT_AFTER", 1200))
-#: Фазы ночного дыхания: (длительность, яркость в начале, яркость в конце).
-#: Вдох короткий и плавный, задержка на пике, выдох длиннее, пауза на дне.
-#: Прошивка умеет только симметричное `breathe`, поэтому кривую ведёт демон.
-NIGHT_BREATH = ((4.0, 8, 58), (1.2, 58, 58), (6.0, 58, 8), (3.0, 8, 8))
 #: Общая поправка яркости для всех состояний: лампа слепит вблизи и засвечивает
 #: камеру. Цвета и эффекты не трогаем — только `bri`.
 BRIGHTNESS = float(os.environ.get("VIBELAMP_BRIGHTNESS", 0.8))
@@ -96,19 +92,6 @@ RECONNECT_EVERY = 2.0
 def scaled_brightness(value: int) -> int:
     """Яркость с общей поправкой, зажатая в допустимые 1..255."""
     return max(1, min(255, int(round(value * BRIGHTNESS))))
-
-
-def night_brightness(elapsed: float) -> int:
-    """Яркость ночного дыхания через ``elapsed`` секунд от начала цикла."""
-    cycle = sum(duration for duration, _, _ in NIGHT_BREATH)
-    if cycle <= 0:
-        return NIGHT_BREATH[-1][2]
-    moment = elapsed % cycle
-    for duration, start, end in NIGHT_BREATH:
-        if moment <= duration:
-            return int(round(start + (end - start) * (moment / duration)))
-        moment -= duration
-    return NIGHT_BREATH[-1][2]
 
 
 def spool_path() -> Path:
@@ -232,8 +215,6 @@ class Engine:
         self.pending_at = 0.0
         self.revert_at = 0.0
         self.waiting_since = 0.0
-        self.night_at = 0.0
-        self.night_bri = -1
         self.events_seen = 0
 
     # -- отрисовка ---------------------------------------------------------
@@ -241,10 +222,6 @@ class Engine:
         state = STATES.get(name)
         if state is None:
             return False
-        if name != "night":
-            # Вышли из ночного режима — дыхание начинается заново, с вдоха.
-            self.night_at = 0.0
-            self.night_bri = -1
         now = self.clock()
         if not force and name == self.current and now - self.last_sent < 30:
             return True
@@ -328,21 +305,6 @@ class Engine:
             self.flash("done", FLASH_DONE, "waiting")
 
     # -- периодические проверки -------------------------------------------
-    def _breathe_night(self, now: float) -> None:
-        """Вести кривую ночного дыхания вручную.
-
-        Штатное ``breathe`` прошивки симметрично, а живое дыхание — нет:
-        вдох короче выдоха, на пике задержка, на дне пауза. Поэтому яркость
-        считает демон и шлёт её как обычный ``bri``.
-        """
-        if not self.night_at:
-            self.night_at = now
-            self.night_bri = -1
-        bri = night_brightness(now - self.night_at)
-        if bri != self.night_bri:
-            if self.painter.apply({"bri": bri}):
-                self.night_bri = bri
-
     def tick(self) -> None:
         now = self.clock()
         if self.pending_tool and now >= self.pending_at:
@@ -362,8 +324,6 @@ class Engine:
         if self.current in ("waiting", "idle") and self.waiting_since and \
                 now - self.waiting_since > NIGHT_AFTER:
             self.render("night")
-        if self.current == "night":
-            self._breathe_night(now)
 
 
 # --------------------------------------------------------------------------- #
@@ -482,10 +442,7 @@ def run(device: Optional[str] = None) -> None:
     painter = Painter(device)
     speaker = Speaker()
     engine = Engine(painter, speaker=speaker)
-    # Дежурный зелёный, а не «boot»: boot — тёмно-розовый (255, 30, 60),
-    # и он висит до таймаута простоя. После перезапуска демона лампа
-    # выглядела сломанной.
-    engine.render("waiting")
+    engine.render("boot")
 
     spool = Tail(spool_path())
     agent_log = Tail(agent_log_path())
