@@ -30,8 +30,14 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:      # запуск как скрипта и импорт из тестов
+    sys.path.insert(0, str(_HERE))
+
 import vibelamp
 from vibelamp import Effect
+
+from speech_macos import Speaker  # noqa: E402  (после правки sys.path)
 
 __all__ = ["Engine", "Painter", "STATES", "Tail", "parse_agent_log",
            "read_append", "spool_path", "log_path", "agent_log_path"]
@@ -70,6 +76,8 @@ FLASH_ARRIVE = 0.35
 FLASH_DONE = 3.0
 FLASH_ERROR = 3.0
 TICK = 0.1
+#: Молчать, если ход был короче этого, секунды (0 — говорить всегда).
+SPEAK_AFTER = float(os.environ.get("VIBELAMP_SPEAK_AFTER", 0))
 #: Секунд между попытками переподключиться, если устройство пропало.
 RECONNECT_EVERY = 2.0
 
@@ -175,14 +183,20 @@ class Engine:
     :param painter: объект с методом ``apply(state) -> bool`` (в тестах —
         записывающая заглушка, в работе — :class:`Painter`).
     :param clock: подменяемое время, чтобы тесты не спали.
+    :param speaker: озвучка «ход закончен» (:class:`speech_macos.Speaker`)
+        или ``None``, если говорить нечем.
     """
 
-    def __init__(self, painter, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, painter, clock: Callable[[], float] = time.time,
+                 speaker=None) -> None:
         self.painter = painter
         self.clock = clock
+        self.speaker = speaker
         self.current = ""
         self.last_sent = 0.0
         self.turn_active = False
+        self.turn_started_at = 0.0
+        self.turn_duration = 0.0
         self.transient_until = 0.0
         self.after_transient = ""
         self.pending_tool: Optional[str] = None
@@ -206,6 +220,9 @@ class Engine:
             log(f"state -> {name}")
         self.current = name
         self.last_sent = now
+        if name == "done" and self.speaker is not None and \
+                self.turn_duration >= SPEAK_AFTER:
+            self.speaker.say()
         return True
 
     def flash(self, name: str, seconds: float, after: str) -> None:
@@ -224,6 +241,7 @@ class Engine:
 
         if kind == "turn_start":
             self.turn_active = True
+            self.turn_started_at = now
             self.waiting_since = 0.0
             self.flash("arrive", FLASH_ARRIVE, "thinking")
 
@@ -268,6 +286,8 @@ class Engine:
         elif kind == "turn_end":
             self.turn_active = False
             self.waiting_since = now
+            self.turn_duration = (now - self.turn_started_at
+                                  if self.turn_started_at else 0.0)
             self.flash("done", FLASH_DONE, "waiting")
 
     # -- периодические проверки -------------------------------------------
@@ -374,7 +394,8 @@ def events_from_agent_log(tail: Tail) -> Iterable[dict]:
 # --------------------------------------------------------------------------- #
 def run(device: Optional[str] = None) -> None:
     painter = Painter(device)
-    engine = Engine(painter)
+    speaker = Speaker()
+    engine = Engine(painter, speaker=speaker)
     engine.render("boot")
 
     spool = Tail(spool_path())

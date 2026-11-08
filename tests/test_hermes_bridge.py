@@ -27,6 +27,7 @@ def _load(name: str, path: Path):
 
 
 lampd = _load("vibelamp_hermes_lampd", INTEGRATION / "lampd.py")
+speech = _load("vibelamp_hermes_speech", INTEGRATION / "speech_macos.py")
 
 
 class FakePainter:
@@ -299,3 +300,91 @@ def test_plugin_never_raises_into_the_agent(tmp_path) -> None:
     blocker.write_text("not a directory", encoding="utf-8")
     plugin.SPOOL = blocker / "events.jsonl"  # type: ignore[attr-defined]
     plugin.emit("turn_start")          # не должно бросить исключение
+
+
+# --------------------------------------------------------------------------- #
+# голос (только macOS)
+# --------------------------------------------------------------------------- #
+class FakeSpeaker:
+    """Записывает вызовы вместо того, чтобы шуметь."""
+
+    def __init__(self) -> None:
+        self.said: list = []
+
+    def say(self, text=None) -> bool:
+        self.said.append(text)
+        return True
+
+
+class Recorder:
+    """Подмена subprocess.Popen: запоминает argv."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append(argv)
+        return object()
+
+
+def test_speaker_is_silent_off_macos() -> None:
+    recorder = Recorder()
+    speaker = speech.Speaker(platform="linux", executable=None, runner=recorder)
+
+    assert speaker.available is False
+    assert speaker.say() is False
+    assert recorder.calls == []
+
+
+def test_speaker_runs_say_with_voice_and_phrase() -> None:
+    recorder = Recorder()
+    speaker = speech.Speaker(platform="darwin", executable="/usr/bin/say",
+                             voice="Samantha", phrase="Job done.", runner=recorder)
+
+    assert speaker.available is True
+    assert speaker.say() is True
+    assert recorder.calls == [["/usr/bin/say", "-v", "Samantha", "Job done."]]
+
+
+def test_speaker_respects_the_off_switch() -> None:
+    recorder = Recorder()
+    speaker = speech.Speaker(platform="darwin", executable="/usr/bin/say",
+                             enabled=False, runner=recorder)
+
+    assert speaker.available is False
+    assert speaker.say() is False
+    assert recorder.calls == []
+
+
+def test_engine_speaks_when_the_turn_finishes() -> None:
+    painter, clock, speaker = FakePainter(), Clock(), FakeSpeaker()
+    engine = lampd.Engine(painter, clock=clock, speaker=speaker)
+
+    engine.feed({"event": "turn_start"})
+    clock.advance(12)
+    engine.feed({"event": "turn_end"})
+
+    assert speaker.said == [None]      # фраза по умолчанию, из Speaker
+
+
+def test_engine_keeps_quiet_for_short_turns(monkeypatch) -> None:
+    monkeypatch.setattr(lampd, "SPEAK_AFTER", 20.0)
+    painter, clock, speaker = FakePainter(), Clock(), FakeSpeaker()
+    engine = lampd.Engine(painter, clock=clock, speaker=speaker)
+
+    engine.feed({"event": "turn_start"})
+    clock.advance(3)
+    engine.feed({"event": "turn_end"})
+
+    assert speaker.said == []
+
+
+def test_engine_without_speaker_does_not_fail() -> None:
+    painter, clock = FakePainter(), Clock()
+    engine = lampd.Engine(painter, clock=clock, speaker=None)
+
+    engine.feed({"event": "turn_start"})
+    clock.advance(5)
+    engine.feed({"event": "turn_end"})
+
+    assert engine.current == "done"
