@@ -482,7 +482,10 @@ def run(device: Optional[str] = None) -> None:
     painter = Painter(device)
     speaker = Speaker()
     engine = Engine(painter, speaker=speaker)
-    engine.render("boot")
+    # Дежурный зелёный, а не «boot»: boot — тёмно-розовый (255, 30, 60),
+    # и он висит до таймаута простоя. После перезапуска демона лампа
+    # выглядела сломанной.
+    engine.render("waiting")
 
     spool = Tail(spool_path())
     agent_log = Tail(agent_log_path())
