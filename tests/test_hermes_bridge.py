@@ -88,11 +88,10 @@ def test_palette_uses_the_sdk_effects() -> None:
     assert _command(lampd.STATES["tool"], "effect") == "running 900 0 200 255"
     assert _command(lampd.STATES["question"], "effect") == "blink 900"
     assert "rgb" not in lampd.STATES["waiting"]        # дыхание не меняет цвет
-    assert _command(lampd.STATES["waiting"], "effect") == "breathe 8000 0 153 0"
-    assert _command(lampd.STATES["idle"], "effect") == "breathe 12000 0 153 0"
-    assert lampd.STATES["night"]["rgb"] == (150, 0, 0)
-    assert "effect" not in lampd.STATES["night"]      # кривую ведёт демон
-    assert lampd.STATES["done"]["rgb"] == (0, 204, 0)
+    assert _command(lampd.STATES["waiting"], "effect") == "breathe 8000 255 255 255"
+    assert _command(lampd.STATES["idle"], "effect") == "breathe 12000 255 255 255"
+    assert _command(lampd.STATES["night"], "effect") == "breathe 12000 150 0 0"
+    assert lampd.STATES["done"]["rgb"] == (255, 255, 255)
 
 
 def test_turn_start_flashes_white_then_falls_back_to_thinking(rig) -> None:
@@ -204,7 +203,7 @@ def test_turn_end_goes_green_then_waits(rig) -> None:
 
     engine.feed({"event": "turn_end"})
     assert engine.current == "done"
-    assert lampd.STATES["done"]["rgb"] == (0, 204, 0)
+    assert lampd.STATES["done"]["rgb"] == (255, 255, 255)
 
     clock.advance(lampd.FLASH_DONE + 0.1)
     engine.tick()
@@ -231,19 +230,7 @@ def test_brightness_is_scaled_down_globally() -> None:
     assert lampd.scaled_brightness(1000) == 255     # и сверху тоже
 
 
-def test_night_breathing_curve_is_asymmetric() -> None:
-    """Вдох короче выдоха, на пике задержка, на дне пауза."""
-    assert lampd.night_brightness(0.0) == 8          # дно
-    assert lampd.night_brightness(2.0) == 33         # середина вдоха
-    assert lampd.night_brightness(4.0) == 58         # пик
-    assert lampd.night_brightness(5.2) == 58         # задержка на пике
-    assert lampd.night_brightness(7.0) == 43         # середина выдоха
-    assert lampd.night_brightness(11.2) == 8         # дно
-    assert lampd.night_brightness(13.0) == 8         # пауза на дне
-    assert lampd.night_brightness(15.0) == 18        # новый цикл
-
-
-def test_long_silence_switches_to_night_and_breathes(rig) -> None:
+def test_long_silence_switches_to_night(rig) -> None:
     engine, painter, clock = rig
     engine.feed({"event": "turn_start"})
     engine.feed({"event": "turn_end"})
@@ -256,15 +243,14 @@ def test_long_silence_switches_to_night_and_breathes(rig) -> None:
     assert engine.current == "idle"
 
     clock.advance(lampd.NIGHT_AFTER)
-    painter.clear()
     engine.tick()
     assert engine.current == "night"
 
-    # Дальше яркость ведёт сам демон: к середине вдоха она выше, чем на дне.
+    # Ночью демон не двигает яркость сам: анимацию рисует прошивка.
+    painter.clear()
     clock.advance(2.0)
     engine.tick()
-    assert painter.applied, "ночью демон обязан двигать яркость"
-    assert painter.applied[-1]["bri"] == lampd.night_brightness(2.0)
+    assert painter.applied == []
 
 
 def test_night_resets_when_agent_wakes_up(rig) -> None:
@@ -277,7 +263,6 @@ def test_night_resets_when_agent_wakes_up(rig) -> None:
 
     engine.feed({"event": "turn_start"})
     assert engine.current != "night"
-    assert engine.night_at == 0.0
 
 
 # --------------------------------------------------------------------------- #
