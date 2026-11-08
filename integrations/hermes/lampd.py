@@ -84,7 +84,11 @@ FLASH_DONE = 3.0
 FLASH_ERROR = 3.0
 TICK = 0.1
 #: Молчать, если ход был короче этого, секунды (0 — говорить всегда).
-SPEAK_AFTER = float(os.environ.get("VIBELAMP_SPEAK_AFTER", 0))
+#: Говорить только про долгую работу. Короткий ответ — молча: одного вызова
+#: инструмента мало, иначе фраза звучит после каждой реплики.
+SPEAK_AFTER = float(os.environ.get("VIBELAMP_SPEAK_AFTER", 60))
+#: Минимальная пауза между фразами, секунды.
+SPEAK_GAP = float(os.environ.get("VIBELAMP_SPEAK_GAP", 180))
 #: Секунд между попытками переподключиться, если устройство пропало.
 RECONNECT_EVERY = 2.0
 
@@ -209,6 +213,8 @@ class Engine:
         self.turn_active = False
         self.turn_started_at = 0.0
         self.turn_duration = 0.0
+        self.speak_now = False        # говорить ли на этом финале
+        self.last_spoken = 0.0
         self.transient_until = 0.0
         self.after_transient = ""
         self.pending_tool: Optional[str] = None
@@ -232,8 +238,9 @@ class Engine:
             log(f"state -> {name}")
         self.current = name
         self.last_sent = now
-        if name == "done" and self.speaker is not None and \
-                self.turn_duration >= SPEAK_AFTER:
+        if name == "done" and self.speak_now and self.speaker is not None:
+            self.speak_now = False
+            self.last_spoken = now
             self.speaker.say()
         return True
 
@@ -254,6 +261,7 @@ class Engine:
         if kind == "turn_start":
             self.turn_active = True
             self.turn_started_at = now
+            self.speak_now = False
             self.waiting_since = 0.0
             self.flash("arrive", FLASH_ARRIVE, "thinking")
 
@@ -302,6 +310,8 @@ class Engine:
             self.waiting_since = now
             self.turn_duration = (now - self.turn_started_at
                                   if self.turn_started_at else 0.0)
+            quiet_ok = (now - self.last_spoken) >= SPEAK_GAP
+            self.speak_now = self.turn_duration >= SPEAK_AFTER and quiet_ok
             self.flash("done", FLASH_DONE, "waiting")
 
     # -- периодические проверки -------------------------------------------

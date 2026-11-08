@@ -454,7 +454,7 @@ def test_engine_speaks_when_the_turn_finishes() -> None:
     engine = lampd.Engine(painter, clock=clock, speaker=speaker)
 
     engine.feed({"event": "turn_start"})
-    clock.advance(12)
+    clock.advance(lampd.SPEAK_AFTER + 5)
     engine.feed({"event": "turn_end"})
 
     assert speaker.said == [None]      # фраза по умолчанию, из Speaker
@@ -470,6 +470,31 @@ def test_engine_keeps_quiet_for_short_turns(monkeypatch) -> None:
     engine.feed({"event": "turn_end"})
 
     assert speaker.said == []
+
+
+def test_engine_respects_the_gap_between_phrases(monkeypatch) -> None:
+    """Два долгих хода подряд не должны давать две фразы."""
+    monkeypatch.setattr(lampd, "SPEAK_AFTER", 10.0)
+    monkeypatch.setattr(lampd, "SPEAK_GAP", 180.0)
+    painter, clock, speaker = FakePainter(), Clock(), FakeSpeaker()
+    engine = lampd.Engine(painter, clock=clock, speaker=speaker)
+
+    engine.feed({"event": "turn_start"})
+    clock.advance(30)
+    engine.feed({"event": "turn_end"})
+    assert len(speaker.said) == 1
+
+    clock.advance(5)
+    engine.feed({"event": "turn_start"})
+    clock.advance(30)
+    engine.feed({"event": "turn_end"})
+    assert len(speaker.said) == 1      # пауза ещё не прошла
+
+    clock.advance(200)
+    engine.feed({"event": "turn_start"})
+    clock.advance(30)
+    engine.feed({"event": "turn_end"})
+    assert len(speaker.said) == 2      # пауза прошла
 
 
 def test_engine_without_speaker_does_not_fail() -> None:
