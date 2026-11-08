@@ -88,10 +88,10 @@ def test_palette_uses_the_sdk_effects() -> None:
     assert _command(lampd.STATES["tool"], "effect") == "running 900 0 200 255"
     assert _command(lampd.STATES["question"], "effect") == "blink 900"
     assert "rgb" not in lampd.STATES["waiting"]        # дыхание не меняет цвет
-    assert _command(lampd.STATES["waiting"], "effect") == "breathe 8000 0 153 0"
-    assert _command(lampd.STATES["idle"], "effect") == "breathe 12000 0 153 0"
+    assert _command(lampd.STATES["waiting"], "effect") == "breathe 8000 255 255 255"
+    assert _command(lampd.STATES["idle"], "effect") == "breathe 12000 255 255 255"
     assert _command(lampd.STATES["night"], "effect") == "breathe 12000 150 0 0"
-    assert lampd.STATES["done"]["rgb"] == (0, 204, 0)
+    assert lampd.STATES["done"]["rgb"] == (255, 255, 255)
 
 
 def test_turn_start_flashes_white_then_falls_back_to_thinking(rig) -> None:
@@ -203,7 +203,7 @@ def test_turn_end_goes_green_then_waits(rig) -> None:
 
     engine.feed({"event": "turn_end"})
     assert engine.current == "done"
-    assert lampd.STATES["done"]["rgb"] == (0, 204, 0)
+    assert lampd.STATES["done"]["rgb"] == (255, 255, 255)
 
     clock.advance(lampd.FLASH_DONE + 0.1)
     engine.tick()
