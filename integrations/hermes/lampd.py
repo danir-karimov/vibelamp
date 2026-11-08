@@ -266,6 +266,8 @@ class Engine:
             self.flash("error", FLASH_ERROR, "thinking")
 
         elif kind == "turn_end":
+            if not self.turn_active:
+                return          # повтор: ход уже закрыт, второй раз не празднуем
             self.turn_active = False
             self.waiting_since = now
             self.flash("done", FLASH_DONE, "waiting")
@@ -369,6 +371,34 @@ def events_from_agent_log(tail: Tail) -> Iterable[dict]:
             yield event
 
 
+#: Сколько секунд тишины в спуле считаются «плагин не работает».
+FALLBACK_AFTER = 20.0
+
+
+def pump(engine: "Engine", spool: Tail, agent_log: Tail,
+         last_plugin_event: float, now: Optional[float] = None) -> float:
+    """Один проход по источникам событий. Возвращает время последнего события.
+
+    Спóл читается всегда. Запасной лог агента тоже **читается** всегда, но
+    его события применяются, только пока плагин молчит. Иначе получается
+    классическая засада: за время хода в логе копится история, и в момент,
+    когда плагин замолкает, она проигрывается заново — вторая зелёная вспышка
+    и второй голос через двадцать секунд после финала.
+    """
+    moment = time.time() if now is None else now
+    for event in events_from_spool(spool):
+        last_plugin_event = moment
+        engine.feed(event)
+
+    lines = list(agent_log.read())          # курсор двигаем в любом случае
+    if moment - last_plugin_event > FALLBACK_AFTER:
+        for line in lines:
+            event = parse_agent_log(line)
+            if event:
+                engine.feed(event)
+    return last_plugin_event
+
+
 # --------------------------------------------------------------------------- #
 # Точка входа
 # --------------------------------------------------------------------------- #
@@ -393,13 +423,7 @@ def run(device: Optional[str] = None) -> None:
     log(f"daemon started (spool={spool_path()})")
 
     while True:
-        for event in events_from_spool(spool):
-            last_plugin_event = time.time()
-            engine.feed(event)
-        # Запасной путь: собственный лог Hermes, пока плагин молчит.
-        if time.time() - last_plugin_event > 20:
-            for event in events_from_agent_log(agent_log):
-                engine.feed(event)
+        last_plugin_event = pump(engine, spool, agent_log, last_plugin_event)
         engine.tick()
         time.sleep(TICK)
 

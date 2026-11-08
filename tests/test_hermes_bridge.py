@@ -210,6 +210,7 @@ def test_turn_end_goes_green_then_waits(rig) -> None:
 
 def test_long_silence_switches_to_rare_breathing(rig) -> None:
     engine, _painter, clock = rig
+    engine.feed({"event": "turn_start"})
     engine.feed({"event": "turn_end"})
     clock.advance(lampd.FLASH_DONE + 0.1)
     engine.tick()
@@ -255,6 +256,55 @@ def test_tail_returns_only_appended_lines(tmp_path) -> None:
     assert tail.read() == ['{"event": "after-truncate"}']
 
 
+def test_duplicate_turn_end_is_ignored(rig) -> None:
+    """Повторный turn_end не должен второй раз праздновать финал."""
+    engine, painter, clock = rig
+    engine.feed({"event": "turn_start"})
+    clock.advance(5)
+    engine.feed({"event": "turn_end"})
+    assert engine.current == "done"
+
+    painter.clear()
+    clock.advance(60)                 # дальше окна дедупликации render()
+    engine.feed({"event": "turn_end"})
+
+    assert engine.current == "done"
+    assert painter.names == []        # повторно ничего не рисуем
+
+
+def test_pump_does_not_replay_agent_log_history(tmp_path) -> None:
+    """Строки лога, накопившиеся за время хода, не проигрываются задним числом."""
+    spool_file = tmp_path / "spool.jsonl"
+    log_file = tmp_path / "agent.log"
+    spool_file.write_text("", encoding="utf-8")
+    log_file.write_text("", encoding="utf-8")
+
+    engine = lampd.Engine(FakePainter(), clock=Clock())
+    spool, agent_log = lampd.Tail(spool_file), lampd.Tail(log_file)
+    now = 1000.0
+
+    # Ход идёт через плагин, а в лог агента параллельно пишется тот же финал.
+    with log_file.open("a", encoding="utf-8") as handle:
+        handle.write("2026-11-08 14:41:50 INFO [s] agent.conversation_loop: "
+                     "Turn ended: reason=text_response(finish_reason=stop)\n")
+    with spool_file.open("a", encoding="utf-8") as handle:
+        handle.write('{"event": "turn_start"}\n')
+
+    last = lampd.pump(engine, spool, agent_log, last_plugin_event=now, now=now)
+    assert last == now
+    assert engine.current == "arrive"
+    assert engine.turn_active is True
+
+    # Плагин замолчал — история из лога не должна отыграться заново.
+    lampd.pump(engine, spool, agent_log, last, now + 30)
+    assert engine.current == "arrive"
+
+    # А вот свежая строка, появившаяся уже в запасном режиме, применяется.
+    with log_file.open("a", encoding="utf-8") as handle:
+        handle.write("2026-11-08 14:42:10 INFO [s] agent.conversation_loop: "
+                     "Turn ended: reason=text_response(finish_reason=stop)\n")
+    lampd.pump(engine, spool, agent_log, last, now + 60)
+    assert engine.current == "done"
 # --------------------------------------------------------------------------- #
 # плагин
 # --------------------------------------------------------------------------- #
