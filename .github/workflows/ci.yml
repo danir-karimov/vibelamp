@@ -14,6 +14,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.9", "3.11", "3.13"]
+        exclude:
+          # actions/python-versions больше не собирает CPython 3.9 под
+          # ubuntu-26.04 (он же ubuntu-latest), поэтому EOL-ветку проверяем
+          # на предыдущем LTS-образе.
+          - os: ubuntu-latest
+            python-version: "3.9"
+        include:
+          - os: ubuntu-22.04
+            python-version: "3.9"
     steps:
       - uses: actions/checkout@v4
 
