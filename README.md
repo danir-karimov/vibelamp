@@ -61,6 +61,8 @@ with vibelamp.connect() as lamp:            # auto: первое найденн�
 * [`docs/protocol.md`](docs/protocol.md) — спецификация CLI-протокола и состояний.
 * [`examples/README.md`](examples/README.md) — четыре готовых скрипта (поиск,
   команды, эффекты, обновление прошивки), все работают с `--sim` без устройства.
+* [`integrations/hermes/`](integrations/hermes/README.md) — мост к агенту
+  Hermes: лампа показывает, думает агент, зовёт инструмент или ждёт ответа.
 * [`tests/`](tests) — 13 модулей тестов; прогон: `pytest`.
 * [`CHANGELOG.md`](CHANGELOG.md) — история изменений.
 
